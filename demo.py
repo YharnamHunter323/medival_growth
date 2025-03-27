@@ -3,7 +3,7 @@ import random
 # Constants
 TARGET_CITIZENS = 10000  # Target population to reach
 YEARS = 100              # Number of years to simulate (extended to 100)
-POPULATION_SIZE = 100     # Number of strategies in the GA population
+POPULATION_SIZE = 100    # Number of strategies in the GA population
 GENERATIONS = 20         # Number of GA generations
 MUTATION_RATE = 0.1      # Probability of mutation
 BASE_GROWTH_RATE = 0.01   # Base population growth rate (10% per year)
@@ -102,27 +102,32 @@ def generate_events():
             events.append(None)  # No event
     return events
 
+def tournament_selection(population, fitness_scores, tournament_size=3):
+    # Randomly select 'tournament_size' individuals
+    contestants = random.sample(list(zip(population, fitness_scores)), tournament_size)
+    # Return the individual with the highest fitness
+    return max(contestants, key=lambda x: x[1][0])[0]
+
+
 def evolve_population(population, events):
     # Evaluate fitness
     fitness_scores = [simulate_game(individual, events) for individual in population]
 
-    # Selection (e.g., top 10%)
-    selected = sorted(zip(population, fitness_scores), key=lambda x: x[1][0], reverse=True)[:int(POPULATION_SIZE * 0.1)]
-    selected = [individual for individual, score in selected]
-
     # Crossover and mutation
     new_population = []
     while len(new_population) < POPULATION_SIZE:
-        parent1, parent2 = random.choices(selected, k=2)
-        child = [(p1 + p2) / 2 for p1, p2 in zip(parent1, parent2)]  # Average crossover
-        if random.random() < MUTATION_RATE:
-            child[random.randint(0, 2)] = random.random()  # Mutate one gene
-        # Ensure allocations sum to 1.0
-        total = sum(child)
-        child = [x / total for x in child]
-        new_population.append(child)
-
+       parent1 = tournament_selection(population, fitness_scores)
+       parent2 = tournament_selection(population, fitness_scores)
+       child = [(p1 + p2) / 2 for p1, p2 in zip(parent1, parent2)]  # Crossover
+       if random.random() < MUTATION_RATE:
+            child[random.randint(0, 2)] = random.random()  # Mutation
+        # Normalize allocations
+       total = sum(child)
+       child = [x / total for x in child]
+       new_population.append(child)
     return new_population
+
+
 
 # Main loop
 population = [create_individual() for _ in range(POPULATION_SIZE)]
