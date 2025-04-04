@@ -1,150 +1,195 @@
 import random
+from collections import defaultdict
 
-# Constants
-TARGET_CITIZENS = 10000  # Target population to reach
-YEARS = 100              # Number of years to simulate (extended to 100)
-POPULATION_SIZE = 100    # Number of strategies in the GA population
+# =========================
+# Core Simulation Constants
+# =========================
+TARGET_CITIZENS = 30000  # Target population to reach
+YEARS = 250              # Number of years to simulate
+POPULATION_SIZE = 100    # Number of strategies in GA population
 GENERATIONS = 20         # Number of GA generations
 MUTATION_RATE = 0.1      # Probability of mutation
-BASE_GROWTH_RATE = 0.01   # Base population growth rate (10% per year)
+BASE_GROWTH_RATE = 0.01  # Base population growth rate (1% per year)
 
-# Chromosome: [food_allocation, military_allocation, medicine_allocation]
+# =====================
+# Scenario Definitions
+# =====================
+SCENARIOS = {
+    "default": {
+        "drought_chance": 0.05,
+        "invasion_chance": 0.03,
+        "plague_chance": 0.03,
+        "food_consumption": 0.08,
+        "growth_modifier": 1.0
+    },
+    "hard_mode": {
+        "drought_chance": 0.15,
+        "invasion_chance": 0.08,
+        "plague_chance": 0.08,
+        "food_consumption": 0.08,
+        "growth_modifier": 1.0
+    },
+    "peaceful": {
+        "drought_chance": 0.01,
+        "invasion_chance": 0.005,
+        "plague_chance": 0.005,
+        "food_consumption": 0.08,
+        "growth_modifier": 1.2
+    }
+}
+
+# =====================
+# Core Functions
+# =====================
 def create_individual():
-    # Generate random allocations that sum to 1.0
     food = random.random()
     military = random.random() * (1 - food)
     medicine = 1 - food - military
     return [food, military, medicine]
 
-def simulate_game(strategy, events):
-    # Initialize game state
-    initial_citizens = 100.0  # Starting number of citizens (as a float)
+def simulate_game(strategy, events, scenario_params):
+    initial_citizens = 100.0
     citizens = initial_citizens
-    food_stock = 100     # Starting food stock
-    military_score = 50  # Starting military score
-    medicine_stock = 50  # Starting medicine stock
-
-    # Track penalties for fitness calculation
+    food_stock = 100
+    military_score = 50
+    medicine_stock = 50
     penalties = 0
 
-    # Simulate years
     for year in range(YEARS):
-        # Apply strategy (ensure allocations sum to 1.0)
+        # Normalize strategy
         total = sum(strategy)
         food_allocation = strategy[0] / total
         military_allocation = strategy[1] / total
         medicine_allocation = strategy[2] / total
 
-        # Scale investments with population (adjusted scaling factors)
-        food_production = food_allocation * citizens * 0.1  # Food scaling
-        military_investment = military_allocation * citizens * 0.05  # Military scaling
-        medicine_investment = medicine_allocation * citizens * 0.03  # Medicine scaling
+        # Resource production with scenario modifier
+        food_production = food_allocation * citizens * 0.1 * scenario_params["growth_modifier"]
+        military_investment = military_allocation * citizens * 0.05
+        medicine_investment = medicine_allocation * citizens * 0.03
 
-        # Update game state
-        food_consumption = citizens * 0.08  # Reduced food consumption rate
+        # Consumption with scenario modifier
+        food_consumption = citizens * scenario_params["food_consumption"]
         food_stock += food_production - food_consumption
 
-        # Handle starvation if food stock is negative
+        # Handle starvation
         if food_stock <= 0:
-            citizens *= 0.7  # Kill 20% of the population (reduced from 30%)
-            food_stock = 0  # Reset food stock to zero
-            penalties += 30  # Reduced fitness penalty for starvation
+            citizens *= 0.7
+            food_stock = 0
+            penalties += 30
             if citizens < 0:
-                citizens = 0  # Ensure citizens don't go below zero
+                citizens = 0
 
         military_score += military_investment
         medicine_stock += medicine_investment
 
-        # Apply pre-generated events for this year
+        # Process events
         event = events[year]
         if event == "drought":
-            food_stock -= 20  # Reduced impact of drought
+            food_stock -= 20
         elif event == "invasion":
             if military_score < 30:
-                citizens *= 0.8  # Lose 10% of citizens (reduced from 15%)
-                food_stock *= 0.8  # Lose 15% of food (reduced from 20%)
-                medicine_stock *= 0.8  # Lose 20% of medicine (reduced from 30%)
-                penalties += 30  # Reduced fitness penalty for invasion
+                citizens *= 0.8
+                food_stock *= 0.8
+                medicine_stock *= 0.8
+                penalties += 30
         elif event == "plague":
-            citizens *= 0.7  # Kill 15% of the population (reduced from 20%)
-            penalties += 30  # Reduced fitness penalty for plague
+            citizens *= 0.7
+            penalties += 30
 
-        # Check for game over conditions
         if citizens <= 0:
-            break  # End simulation if no citizens left
+            break
 
-        # Population growth (base growth rate + modifiers)
-        growth_rate = BASE_GROWTH_RATE
-        if food_stock > 0:  # Positive growth if there's enough food
-            growth_rate += 0.02  # Slightly higher growth rate
-        if medicine_stock > 50:  # Positive growth if medicine is abundant
+        # Population growth
+        growth_rate = BASE_GROWTH_RATE * scenario_params["growth_modifier"]
+        if food_stock > 0:
+            growth_rate += 0.02
+        if medicine_stock > 50:
             growth_rate += 0.01
-        citizens += citizens * growth_rate  # Increase citizens (no int() truncation)
+        citizens += citizens * growth_rate
 
-    # Fitness score based on population increase
     population_increase = citizens - initial_citizens
-    fitness = population_increase - penalties  # Subtract penalties from fitness
+    fitness = population_increase - penalties
     if citizens >= TARGET_CITIZENS:
-        fitness += 1000  # Bonus for reaching the target
-    return fitness, int(citizens), food_stock, military_score, medicine_stock  # Convert citizens to int for display
+        fitness += 1000
+    return fitness, int(citizens), food_stock, military_score, medicine_stock
 
-def generate_events():
-    # Generate a list of events for each year
+def generate_events(scenario_params):
     events = []
     for _ in range(YEARS):
-        if random.random() < 0.05:  # Drought (5% chance, reduced from 8%)
+        if random.random() < scenario_params["drought_chance"]:
             events.append("drought")
-        elif random.random() < 0.03:  # Invasion (3% chance, reduced from 4%)
+        elif random.random() < scenario_params["invasion_chance"]:
             events.append("invasion")
-        elif random.random() < 0.03:  # Plague (3% chance, reduced from 4%)
+        elif random.random() < scenario_params["plague_chance"]:
             events.append("plague")
         else:
-            events.append(None)  # No event
+            events.append(None)
     return events
 
 def tournament_selection(population, fitness_scores, tournament_size=3):
-    # Randomly select 'tournament_size' individuals
     contestants = random.sample(list(zip(population, fitness_scores)), tournament_size)
-    # Return the individual with the highest fitness
     return max(contestants, key=lambda x: x[1][0])[0]
 
-
-def evolve_population(population, events):
-    # Evaluate fitness
-    fitness_scores = [simulate_game(individual, events) for individual in population]
-
-    # Crossover and mutation
+def evolve_population(population, events, scenario_params):
+    fitness_scores = [simulate_game(individual, events, scenario_params) for individual in population]
     new_population = []
     while len(new_population) < POPULATION_SIZE:
-       parent1 = tournament_selection(population, fitness_scores)
-       parent2 = tournament_selection(population, fitness_scores)
-       child = [(p1 + p2) / 2 for p1, p2 in zip(parent1, parent2)]  # Crossover
-       if random.random() < MUTATION_RATE:
-            child[random.randint(0, 2)] = random.random()  # Mutation
-        # Normalize allocations
-       total = sum(child)
-       child = [x / total for x in child]
-       new_population.append(child)
+        parent1 = tournament_selection(population, fitness_scores)
+        parent2 = tournament_selection(population, fitness_scores)
+        child = [(p1 + p2) / 2 for p1, p2 in zip(parent1, parent2)]
+        if random.random() < MUTATION_RATE:
+            child[random.randint(0, 2)] = random.random()
+        total = sum(child)
+        child = [x / total for x in child]
+        new_population.append(child)
     return new_population
 
-
-
-# Main loop
-population = [create_individual() for _ in range(POPULATION_SIZE)]
-for generation in range(GENERATIONS):
-    # Generate events for this generation
-    events = generate_events()
+# =====================
+# Testing Framework
+# =====================
+def test_strategy(strategy, num_tests=10):
+    results = defaultdict(list)
     
-    # Evolve the population
-    population = evolve_population(population, events)
+    for scenario_name, params in SCENARIOS.items():
+        for _ in range(num_tests):
+            events = generate_events(params)
+            fitness, citizens, _, _, _ = simulate_game(strategy, events, params)
+            results[scenario_name].append({
+                "fitness": fitness,
+                "citizens": citizens,
+                "success": citizens >= TARGET_CITIZENS
+            })
     
-    # Evaluate the best individual
-    best_fitness, best_citizens, best_food, best_military, best_medicine = max([simulate_game(individual, events) for individual in population], key=lambda x: x[0])
-    print(f"Generation {generation}:")
-    print(f"  Best Fitness: {best_fitness}")
-    print(f"  Citizens: {best_citizens}, Food: {best_food}, Military: {best_military}, Medicine: {best_medicine}")
-    print()
+    # Print summary
+    print("\nStrategy Performance Across Scenarios:")
+    for scenario, data in results.items():
+        success_rate = sum(1 for r in data if r["success"]) / num_tests
+        avg_citizens = sum(r["citizens"] for r in data) / num_tests
+        print(f"{scenario.upper():<10} | Success: {success_rate*100:.0f}% | Avg Pop: {avg_citizens:.0f}")
 
-# Best strategy
-best_strategy = max(population, key=lambda x: simulate_game(x, generate_events())[0])
-print("Best Strategy:", best_strategy)
+# =====================
+# Main Execution
+# =====================
+if __name__ == "__main__":
+    # Training phase (using default scenario)
+    print("Training optimal strategy...")
+    population = [create_individual() for _ in range(POPULATION_SIZE)]
+    for generation in range(GENERATIONS):
+        events = generate_events(SCENARIOS["default"])
+        population = evolve_population(population, events, SCENARIOS["default"])
+        
+        # Track best performer
+        best_fitness, best_citizens, _, _, _ = max(
+            [simulate_game(ind, events, SCENARIOS["default"]) for ind in population],
+            key=lambda x: x[0]
+        )
+        print(f"Gen {generation}: Fitness={best_fitness:.0f}, Pop={best_citizens}")
+
+    # Identify best strategy
+    best_strategy = max(population, 
+                       key=lambda x: simulate_game(x, generate_events(SCENARIOS["default"]), 
+                                                 SCENARIOS["default"])[0])
+    print("\nFinal Strategy:", [f"{x:.2f}" for x in best_strategy])
+
+    # Cross-test the strategy
+    test_strategy(best_strategy)
