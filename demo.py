@@ -3,6 +3,10 @@ from collections import defaultdict
 
 import matplotlib.pyplot as plt
 
+import time
+import sys
+from colorama import Fore, Back, Style, init
+init()
 # =========================
 # Core Simulation Constants
 # =========================
@@ -40,6 +44,19 @@ SCENARIOS = {
     }
 }
 
+EVENT_COLORS = {
+    "drought": Fore.YELLOW,
+    "invasion": Fore.RED,
+    "plague": Fore.MAGENTA,
+    None: Fore.WHITE
+}
+
+MILESTONES = {
+    500: "🏠 Village Established",
+    5000: "🏛️ Town Center Built",
+    10000: "🏙️ City Founded",
+    30000: "🌆 Metropolis Achieved!"
+}
 # =====================
 # Core Functions
 # =====================
@@ -49,35 +66,55 @@ def create_individual():
     medicine = 1 - food - military
     return [food, military, medicine]
 
-def simulate_game(strategy, events, scenario_params, track_history=False):
+def simulate_game(strategy, events, scenario_params, player_controlled=False, track_history=False):
+    # Initialize game state
     initial_citizens = 100.0
     citizens = initial_citizens
     food_stock = 100
     military_score = 50
     medicine_stock = 50
     penalties = 0
-
-     # History tracking variables
+    SPEED = 1.0  # Game speed multiplier
+    
+    # History tracking variables
     if track_history:
         citizens_history = []
         food_history = []
         military_history = []
         medicine_history = []
         event_years = {'drought': [], 'invasion': [], 'plague': []}
-    
+
     for year in range(YEARS):
+        # --- Game UI Update ---
+        if year % 10 == 0 or year == YEARS-1 or citizens <= 0:
+            print_game_state(year, citizens, food_stock, military_score, medicine_stock, 
+                           events[year], scenario_params)
+            check_milestones(citizens)
+            
+            if player_controlled:
+                cmd = handle_player_input()
+                if cmd == "pause":
+                    input("[PAUSED] Press Enter to continue...")
+                elif cmd == "faster":
+                    SPEED = max(0.1, SPEED * 0.7)
+                elif cmd == "slower":
+                    SPEED = min(2.0, SPEED * 1.3)
+        
+        time.sleep(0.5/SPEED)  # Adjustable speed
+
+        # --- Core Simulation Logic (unchanged) ---
         # Normalize strategy
         total = sum(strategy)
         food_allocation = strategy[0] / total
         military_allocation = strategy[1] / total
         medicine_allocation = strategy[2] / total
 
-        # Resource production with scenario modifier
+        # Resource production
         food_production = food_allocation * citizens * 0.1 * scenario_params["growth_modifier"]
         military_investment = military_allocation * citizens * 0.05
         medicine_investment = medicine_allocation * citizens * 0.03
 
-        # Consumption with scenario modifier
+        # Consumption
         food_consumption = citizens * scenario_params["food_consumption"]
         food_stock += food_production - food_consumption
 
@@ -86,16 +123,16 @@ def simulate_game(strategy, events, scenario_params, track_history=False):
             citizens *= 0.7
             food_stock = 0
             penalties += 30
-            if citizens < 0:
-                citizens = 0
+            print(f"{Fore.RED}⚡ STARVATION! Population drops!{Style.RESET_ALL}")
 
         military_score += military_investment
         medicine_stock += medicine_investment
 
-         # Process events
+        # Process events
         event = events[year]
         if event == "drought":
             food_stock -= 20
+            print(f"{Fore.YELLOW}⚡ DROUGHT! Food reserves diminished.{Style.RESET_ALL}")
             if track_history:
                 event_years['drought'].append(year)
         elif event == "invasion":
@@ -104,16 +141,21 @@ def simulate_game(strategy, events, scenario_params, track_history=False):
                 food_stock *= 0.8
                 medicine_stock *= 0.8
                 penalties += 30
+                print(f"{Fore.RED}⚡ INVASION FAILED! Heavy losses.{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.GREEN}⚡ INVASION REPELLED! Strong defenses.{Style.RESET_ALL}")
             if track_history:
                 event_years['invasion'].append(year)
         elif event == "plague":
             citizens *= 0.7
             penalties += 30
+            print(f"{Fore.MAGENTA}⚡ PLAGUE! Many have fallen.{Style.RESET_ALL}")
             if track_history:
                 event_years['plague'].append(year)
 
         if citizens <= 0:
             citizens = 0
+            print(f"{Fore.RED}☠️ CIVILIZATION COLLAPSED!{Style.RESET_ALL}")
             if track_history:
                 citizens_history.append(citizens)
                 food_history.append(food_stock)
@@ -129,19 +171,19 @@ def simulate_game(strategy, events, scenario_params, track_history=False):
             growth_rate += 0.01
         citizens += citizens * growth_rate
 
-        
         if track_history:
             citizens_history.append(citizens)
             food_history.append(food_stock)
             military_history.append(military_score)
             medicine_history.append(medicine_stock)
-        
 
+    # Final results
     population_increase = citizens - initial_citizens
     fitness = population_increase - penalties
     if citizens >= TARGET_CITIZENS:
         fitness += 1000
-    
+        print(f"{Fore.GREEN}🎉 VICTORY! Target population reached!{Style.RESET_ALL}")
+
     if track_history:
         return (fitness, int(citizens), citizens_history, food_history, military_history, medicine_history, event_years)
     else:
@@ -202,6 +244,45 @@ def test_strategy(strategy, num_tests=10):
         print(f"{scenario.upper():<10} | Success: {success_rate*100:.0f}% | Avg Pop: {avg_citizens:.0f}")
 
 
+# =====================
+# Gaming
+# =====================
+def print_game_state(year, population, food, military, medicine, current_event, growth_mod):
+    """Prints the animated game header"""
+    sys.stdout.write("\033[H\033[J")  # Clear screen
+    
+    # Progress bar
+    progress = min(population / TARGET_CITIZENS, 1.0)
+    bar_width = 40
+    filled = int(progress * bar_width)
+    
+    print(f"{Fore.CYAN}=== YEAR {year}/{YEARS} [{scenario_params['name']}] ===")
+    print(f"🏛 POPULATION: {population:,.0f} / {TARGET_CITIZENS:,}")
+    print(f"{'█' * filled}{'░' * (bar_width - filled)} {progress:.1%}")
+    print(f"\n{Fore.GREEN}🌾 FOOD: {food:.0f}  {Fore.RED}⚔️ MILITARY: {military:.0f}  {Fore.BLUE}🩺 MEDICINE: {medicine:.0f}")
+    
+    if current_event:
+        print(f"\n{EVENT_COLORS[current_event]}! {current_event.upper()} INCOMING !{Style.RESET_ALL}")
+
+def check_milestones(population):
+    """Check for milestone achievements"""
+    for threshold, message in MILESTONES.items():
+        if population >= threshold:
+            print(f"\n{Fore.YELLOW}✨ MILESTONE: {message}{Style.RESET_ALL}")
+            MILESTONES.pop(threshold)  # Prevent repeat messages
+            time.sleep(1)
+            break
+
+def handle_player_input():
+    """Simple input handler for game controls"""
+    cmd = input("\n[1] Faster [2] Slower [3] Pause >>> ")
+    if cmd == "3":
+        input("[PAUSED] Press Enter to continue...")
+    elif cmd == "1":
+        global SPEED
+        SPEED = max(0.1, SPEED * 0.8)
+    elif cmd == "2":
+        SPEED = min(2.0, SPEED * 1.2)
 # =====================
 # Graphics 
 # =====================
@@ -333,53 +414,70 @@ def plot_scenario_comparison(strategy, num_tests=10):
     fig.suptitle('Strategy Performance Across Scenarios', y=1.05)
     plt.tight_layout()
     plt.show()
-    plt.show()
-
-
-    plt.figure(figsize=(8, 5))
-    plt.plot(fitness_history)
-    plt.title('Genetic Algorithm Progress')
-    plt.xlabel('Generation')
-    plt.ylabel('Best Fitness Score')
-    plt.grid(True)
-    plt.show()   
+     
 # =====================
 # Main Execution
 # =====================
 if __name__ == "__main__":
-    # Training phase (using default scenario)
-    print("Training optimal strategy...")
-    population = [create_individual() for _ in range(POPULATION_SIZE)]
-    for generation in range(GENERATIONS):
-        events = generate_events(SCENARIOS["default"])
-        population = evolve_population(population, events, SCENARIOS["default"])
+    # Initialize game
+    init()  # Colorama initialization
+    print(f"{Back.BLUE}{Fore.WHITE}=== CIVILIZATION SIMULATOR ==={Style.RESET_ALL}\n")
+    
+    # Scenario selection
+    print(f"{Style.BRIGHT}Choose scenario:{Style.RESET_ALL}")
+    for i, scenario in enumerate(SCENARIOS.keys(), 1):
+        print(f"{i}. {scenario.capitalize()}")
+    
+    while True:
+        try:
+            choice = int(input("> ")) - 1
+            scenario_name = list(SCENARIOS.keys())[choice]
+            scenario_params = SCENARIOS[scenario_name]
+            scenario_params["name"] = scenario_name  # For UI display
+            break
+        except (ValueError, IndexError):
+            print(f"{Fore.RED}Invalid choice. Try 1-3.{Style.RESET_ALL}")
+
+    # Game mode selection
+    print(f"\n{Style.BRIGHT}Select mode:{Style.RESET_ALL}")
+    print("1. Watch AI Simulation")
+    print("2. Interactive Mode (Control Speed)")
+    game_mode = int(input("> ")) == 2
+
+    # Generate events once for consistency
+    events = generate_events(scenario_params)
+    
+    if game_mode:
+        # Interactive player experience
+        print(f"\n{Fore.YELLOW}Controls:{Style.RESET_ALL}")
+        print("[1] Faster  [2] Slower  [3] Pause")
+        print("----------------------------------")
+        input("Press Enter to begin simulation...")
         
-        # Track best performer
-        best_fitness, best_citizens, _, _, _ = max(
-            [simulate_game(ind, events, SCENARIOS["default"]) for ind in population],
-            key=lambda x: x[0]
-        )
-        print(f"Gen {generation}: Fitness={best_fitness:.0f}, Pop={best_citizens}")
+        # Run with player controls
+        best_strategy = [0.5, 0.3, 0.2]  # Example balanced strategy
+        simulate_game(best_strategy, events, scenario_params, player_controlled=True)
+    else:
+        # Run GA optimization first
+        print("\nOptimizing strategy with genetic algorithm...")
+        population = [create_individual() for _ in range(POPULATION_SIZE)]
+        
+        for generation in range(GENERATIONS):
+            events = generate_events(scenario_params)
+            population = evolve_population(population, events, scenario_params)
+            
+            # Show GA progress
+            best = max(population, 
+                      key=lambda x: simulate_game(x, events, scenario_params)[0])
+            fitness, pop, _, _, _ = simulate_game(best, events, scenario_params)
+            print(f"Gen {generation}: Best Fitness={fitness:.0f}, Pop={pop}")
+        
+        # Show final optimized simulation
+        best_strategy = max(population,
+                          key=lambda x: simulate_game(x, events, scenario_params)[0])
+        print(f"\n{Fore.GREEN}Running optimized strategy...{Style.RESET_ALL}")
+        simulate_game(best_strategy, events, scenario_params, player_controlled=False)
 
-    # Identify best strategy
-    best_strategy = max(population, 
-                       key=lambda x: simulate_game(x, generate_events(SCENARIOS["default"]), 
-                                                 SCENARIOS["default"])[0])
-    print("\nFinal Strategy:", [f"{x:.2f}" for x in best_strategy])
-
-    # Cross-test the strategy
-    test_strategy(best_strategy)
-
-     # After finding best_strategy:
-    print("\nVisualizing results...")
-    plot_strategy_allocation(best_strategy)
-    
-    # Show for default scenario
-    plot_population_growth(best_strategy, "default")
-    plot_resource_levels(best_strategy, "default")
-    
-    # Show for hard mode
-    plot_population_growth(best_strategy, "hard_mode")
-    
-    # Scenario comparison
-    plot_scenario_comparison(best_strategy)
+    # Final summary
+    print(f"\n{Style.BRIGHT}Simulation complete!{Style.RESET_ALL}")
+    print(f"Final strategy: Food={best_strategy[0]:.1%}, Military={best_strategy[1]:.1%}, Medicine={best_strategy[2]:.1%}")
